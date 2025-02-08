@@ -1,6 +1,7 @@
 use glfw::{fail_on_errors, Action, Context, Key};
 
 fn main() {
+    // glfw code
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
 
     let (mut window, events) = glfw
