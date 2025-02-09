@@ -1,8 +1,46 @@
 #![warn(clippy::all, clippy::pedantic)]
 
+use core::net;
+use std::time;
+
 use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window, WindowEvent};
 use wgpu::{self, rwh::HasDisplayHandle, Backends, InstanceDescriptor, Surface};
 
+struct RgbaColor(f64, f64, f64, f64);
+impl RgbaColor {
+    fn new<R, G, B, A>((r, g, b, a): (R, G, B, A)) -> Option<Self>
+    where
+        R: Into<f64>,
+        G: Into<f64>,
+        B: Into<f64>,
+        A: Into<f64>,
+    {
+        // Shadowing
+        let r = r.into();
+        let g = g.into();
+        let b = b.into();
+        let a = a.into();
+
+        // Confirm
+        let is_invalid = |x: &f64| {
+            if 0.0 > *x || *x > 1.0 {
+                false
+            } else {
+                true
+            }
+        };
+
+        // I <3 Functional Programming
+        let proceed = vec![r, g, b, a].iter().any(|x| is_invalid(x));
+
+        // Return
+        if proceed {
+            Some(RgbaColor(r.into(), g.into(), b.into(), a.into()))
+        } else {
+            None
+        }
+    }
+}
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
@@ -100,14 +138,32 @@ impl<'a> State<'a> {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
-        
+    fn input(&mut self, event: &WindowEvent) {
+        match event {
+            glfw::WindowEvent::CursorPos(x, y) => {
+                let x_normalized = x / (self.size.0 as f64);
+                let y_normalized = y / (self.size.1 as f64);
+                self.clear_screen_to(
+                    RgbaColor::new((
+                        x_normalized,
+                        y_normalized,
+                        (x_normalized + y_normalized) / 2.,
+                        1.,
+                    ))
+                    .expect("Invalid input was passed to clear screen"),
+                );
+                let sensible_wait_time = std::time::Duration::from_millis(5);
+                std::thread::sleep(sensible_wait_time);
+            }
+            _ => {}
+        }
     }
 
-    fn update(&mut self) {}
-
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+    fn clear_screen_to(&mut self, RgbaColor(red, green, blue, alpha): RgbaColor) {
+        let output = self
+            .surface
+            .get_current_texture()
+            .expect("Failed to get texture");
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -124,10 +180,10 @@ impl<'a> State<'a> {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
-                        a: 1.0,
+                        r: red,
+                        g: green,
+                        b: blue,
+                        a: alpha,
                     }),
                     store: wgpu::StoreOp::Store,
                 },
@@ -140,6 +196,12 @@ impl<'a> State<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+    }
+
+    fn update(&mut self) {}
+
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.clear_screen_to(RgbaColor(1.0, 1.0, 1.0, 1.0));
         Ok(())
     }
 }
@@ -157,7 +219,11 @@ async fn run() {
     window.make_current();
     window.set_key_polling(true);
     window.set_cursor_pos_polling(true);
+    window.set_cursor_enter_polling(true);
     let mut state = State::new(&mut window).await;
+
+    state.render();
+    let mut cursor_pos_was_not_called = true;
 
     while !state.window.should_close() {
         glfw.poll_events();
@@ -165,19 +231,21 @@ async fn run() {
         state.update(); // does nothing rn
 
         // Render the screen
-        match state.render() {
-            Ok(_) => {}
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                state.resize(state.size)
+        if cursor_pos_was_not_called {
+            match state.render() {
+                Ok(_) => {}
+                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    state.resize(state.size)
+                }
+                Err(wgpu::SurfaceError::OutOfMemory) => {
+                    state.window.set_should_close(true);
+                    todo!("tracing as well")
+                }
+                Err(wgpu::SurfaceError::Timeout) => {
+                    todo!("tracing")
+                }
+                Err(wgpu::SurfaceError::Other) => eprintln!("Well shit"),
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                state.window.set_should_close(true);
-                todo!("tracing as well")
-            }
-            Err(wgpu::SurfaceError::Timeout) => {
-                todo!("tracing")
-            }
-            Err(wgpu::SurfaceError::Other) => eprintln!("Well shit"),
         }
 
         // Capture all the events here
@@ -190,7 +258,11 @@ async fn run() {
                 glfw::WindowEvent::MouseButton(MouseButton::Left, Action::Press, _) => {
                     state.window.set_should_close(true);
                 }
-                glfw::StandardCursor
+                glfw::WindowEvent::CursorPos(x, y) => {
+                    println!("{}, {}", x, y);
+                    state.input(&glfw::WindowEvent::CursorPos(x, y));
+                    cursor_pos_was_not_called = false;
+                }
                 event => {
                     println!("{:?}", event);
                 }
