@@ -1,6 +1,6 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use glfw::{fail_on_errors, Action, Context, Key, Window, WindowEvent};
+use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window, WindowEvent};
 use wgpu::{self, rwh::HasDisplayHandle, Backends, InstanceDescriptor, Surface};
 
 struct State<'a> {
@@ -101,7 +101,7 @@ impl<'a> State<'a> {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        
     }
 
     fn update(&mut self) {}
@@ -156,7 +156,7 @@ async fn run() {
 
     window.make_current();
     window.set_key_polling(true);
-
+    window.set_cursor_pos_polling(true);
     let mut state = State::new(&mut window).await;
 
     while !state.window.should_close() {
@@ -187,6 +187,10 @@ async fn run() {
                     state.window.set_should_close(true)
                 }
                 glfw::WindowEvent::Size(width, height) => state.resize((width, height)),
+                glfw::WindowEvent::MouseButton(MouseButton::Left, Action::Press, _) => {
+                    state.window.set_should_close(true);
+                }
+                glfw::StandardCursor
                 event => {
                     println!("{:?}", event);
                 }
