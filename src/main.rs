@@ -17,7 +17,7 @@ impl<'a> State<'a> {
         let size = window.get_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::VULKAN,
             ..Default::default()
         });
         let target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(window) }
@@ -138,55 +138,63 @@ impl<'a> State<'a> {
         });
         drop(render_pass);
 
-        // submit will accept anything
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         Ok(())
     }
 }
 
-#[tokio::main]
-async fn main() {
+async fn run() {
     // glfw code
     let mut glfw = glfw::init(fail_on_errors!()).expect("Failed to get glfw");
+
+    glfw.window_hint(glfw::WindowHint::Resizable(true));
 
     let (mut window, events) = glfw
         .create_window(800, 600, "wGPU training arc", glfw::WindowMode::Windowed)
         .expect("Failed to get window and events");
 
-    window.set_key_polling(true);
     window.make_current();
+    window.set_key_polling(true);
 
     let mut state = State::new(&mut window).await;
 
     while !state.window.should_close() {
         glfw.poll_events();
+
+        state.update(); // does nothing rn
+
+        // Render the screen
+        match state.render() {
+            Ok(_) => {}
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                state.resize(state.size)
+            }
+            Err(wgpu::SurfaceError::OutOfMemory) => {
+                state.window.set_should_close(true);
+                todo!("tracing as well")
+            }
+            Err(wgpu::SurfaceError::Timeout) => {
+                todo!("tracing")
+            }
+            Err(wgpu::SurfaceError::Other) => eprintln!("Well shit"),
+        }
+
+        // Capture all the events here
         for (_, event) in glfw::flush_messages(&events) {
             match event {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     state.window.set_should_close(true)
                 }
+                glfw::WindowEvent::Size(width, height) => state.resize((width, height)),
                 event => {
                     println!("{:?}", event);
                 }
             }
-
-            state.update();
-            match state.render() {
-                Ok(_) => {}
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                    state.resize(state.size)
-                }
-                Err(wgpu::SurfaceError::OutOfMemory) => {
-                    state.window.set_should_close(true);
-                    todo!("tracing as well")
-                }
-                Err(wgpu::SurfaceError::Timeout) => {
-                    todo!("tracing")
-                }
-                Err(wgpu::SurfaceError::Other) => eprintln!("Well shit"),
-            }
         }
-        state.window.swap_buffers();
     }
+}
+
+fn main() {
+    pollster::block_on(run());
 }
