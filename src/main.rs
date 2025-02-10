@@ -1,46 +1,17 @@
 #![warn(clippy::all, clippy::pedantic)]
 
+mod colors;
+mod prelude;
+
 use core::net;
+use prelude::*;
 use std::time;
 
 use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window, WindowEvent};
-use wgpu::{self, rwh::HasDisplayHandle, Backends, InstanceDescriptor, Surface};
+use wgpu::{
+    self, core::device::SHADER_STAGE_COUNT, rwh::HasDisplayHandle, util::RenderEncoder, Backends, InstanceDescriptor, PipelineLayoutDescriptor, RenderPipelineDescriptor, Surface
+};
 
-struct RgbaColor(f64, f64, f64, f64);
-impl RgbaColor {
-    fn new<R, G, B, A>((r, g, b, a): (R, G, B, A)) -> Option<Self>
-    where
-        R: Into<f64>,
-        G: Into<f64>,
-        B: Into<f64>,
-        A: Into<f64>,
-    {
-        // Shadowing
-        let r = r.into();
-        let g = g.into();
-        let b = b.into();
-        let a = a.into();
-
-        // Confirm
-        let is_invalid = |x: &f64| {
-            if 0.0 > *x || *x > 1.0 {
-                false
-            } else {
-                true
-            }
-        };
-
-        // I <3 Functional Programming
-        let proceed = vec![r, g, b, a].iter().any(|x| is_invalid(x));
-
-        // Return
-        if proceed {
-            Some(RgbaColor(r.into(), g.into(), b.into(), a.into()))
-        } else {
-            None
-        }
-    }
-}
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
@@ -48,6 +19,7 @@ struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     size: (i32, i32),
     window: &'a mut Window,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl<'a> State<'a> {
@@ -111,6 +83,56 @@ impl<'a> State<'a> {
 
         surface.configure(&device, &config);
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
         Self {
             surface,
             device,
@@ -118,6 +140,7 @@ impl<'a> State<'a> {
             config,
             size,
             window,
+            render_pipeline,
         }
     }
 
@@ -159,7 +182,28 @@ impl<'a> State<'a> {
         }
     }
 
-    fn clear_screen_to(&mut self, RgbaColor(red, green, blue, alpha): RgbaColor) {
+    fn draw_triangle_from_shader(&mut self, path_to_shader: &str) {
+        // Define the stuff
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(path_to_shader.into())
+        });
+
+        let render_pipeline_layout =
+            self.device
+                .create_pipeline_layout(&PipelineLayoutDescriptor {
+                    label: Some("A Custom Pipeline"),
+                    bind_group_layouts: &[],
+                    push_constant_ranges: &[],
+                });
+
+        let render_pipeline = self.device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("My Custom Render Pipeline"),
+            layout: render_pipeline_layout,
+            vertex: 
+        })
+
+        // We will create a new pipeline
         let output = self
             .surface
             .get_current_texture()
@@ -172,18 +216,52 @@ impl<'a> State<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.draw(0..3, 0..1);
+        drop(render_pass);
 
-        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+    }
+
+    fn clear_screen_to(&mut self, color: RgbaColor) {
+        let output = self
+            .surface
+            .get_current_texture()
+            .expect("Failed to get texture");
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: red,
-                        g: green,
-                        b: blue,
-                        a: alpha,
+                        r: color.red(),
+                        g: color.green(),
+                        b: color.blue(),
+                        a: color.alpha(),
                     }),
                     store: wgpu::StoreOp::Store,
                 },
@@ -201,7 +279,8 @@ impl<'a> State<'a> {
     fn update(&mut self) {}
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.clear_screen_to(RgbaColor(1.0, 1.0, 1.0, 1.0));
+        // The values passed are in the normalized range
+        self.draw_triangle();
         Ok(())
     }
 }
@@ -261,7 +340,7 @@ async fn run() {
                 glfw::WindowEvent::CursorPos(x, y) => {
                     println!("{}, {}", x, y);
                     state.input(&glfw::WindowEvent::CursorPos(x, y));
-                    cursor_pos_was_not_called = false;
+                    // cursor_pos_was_not_called = false;
                 }
                 event => {
                     println!("{:?}", event);
