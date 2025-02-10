@@ -1,4 +1,12 @@
 pub struct RgbaColor(f64, f64, f64, f64);
+
+#[non_exhaustive]
+pub struct Colors;
+
+impl Colors {
+    pub const WHITE: RgbaColor = RgbaColor(1., 1., 1., 1.);
+}
+
 impl RgbaColor {
     pub fn new<R, G, B, A>((r, g, b, a): (R, G, B, A)) -> Option<Self>
     where
