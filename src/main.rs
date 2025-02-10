@@ -1,18 +1,9 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-mod colors;
-mod prelude;
+mod prelude; // Currently nothing in it, might become relevant as this grows -\(-.-)-\
 
-use core::net;
-use prelude::*;
-use std::time;
-
-use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window, WindowEvent};
-use wgpu::{
-    self, core::device::SHADER_STAGE_COUNT, include_wgsl, rwh::HasDisplayHandle,
-    util::RenderEncoder, Backends, Color, InstanceDescriptor, PipelineLayoutDescriptor,
-    PrimitiveState, RenderPipelineDescriptor, Surface, VertexStepMode,
-};
+use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window};
+use wgpu::{self, Color};
 
 struct State<'a> {
     surface: wgpu::Surface<'a>,
@@ -189,14 +180,6 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn window(&self) -> &Window {
-        &self.window
-    }
-
-    pub fn window_mut(&mut self) -> &mut Window {
-        &mut self.window
-    }
-
     fn resize(&mut self, new_size: (i32, i32)) {
         if new_size.0 > 0 && new_size.1 > 0 {
             self.size = new_size;
@@ -206,28 +189,8 @@ impl<'a> State<'a> {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent) {
-        match event {
-            glfw::WindowEvent::CursorPos(x, y) => {
-                let x_normalized = x / (self.size.0 as f64);
-                let y_normalized = y / (self.size.1 as f64);
-                self.clear_screen_to(
-                    RgbaColor::new((
-                        x_normalized,
-                        y_normalized,
-                        (x_normalized + y_normalized) / 2.,
-                        1.,
-                    ))
-                    .expect("Invalid input was passed to clear screen"),
-                );
-                let sensible_wait_time = std::time::Duration::from_millis(5);
-                std::thread::sleep(sensible_wait_time);
-            }
-            _ => {}
-        }
-    }
-
-    fn draw_triangle(&mut self, toggle: bool) {
+    // Might be repurposed, (?) Could be cool in the builder abstraction thingey
+    fn _draw_triangle(&mut self, toggle: bool) {
         // My conditional here
         let render_pipeline: &wgpu::RenderPipeline = if toggle {
             &self.render_pipelines[1]
@@ -269,7 +232,7 @@ impl<'a> State<'a> {
         output.present();
     }
 
-    fn clear_screen_to(&mut self, color: RgbaColor) {
+    fn clear_screen_to(&mut self, color: Color) {
         let output = self
             .surface
             .get_current_texture()
@@ -282,17 +245,17 @@ impl<'a> State<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: color.red(),
-                        g: color.green(),
-                        b: color.blue(),
-                        a: color.alpha(),
+                        r: color.r,
+                        g: color.g,
+                        b: color.b,
+                        a: color.a,
                     }),
                     store: wgpu::StoreOp::Store,
                 },
@@ -309,10 +272,7 @@ impl<'a> State<'a> {
 
     fn update(&mut self) {}
 
-    fn render(&mut self, use_pos: bool) -> Result<(), wgpu::SurfaceError> {
-        // The values passed are in the normalized range
-
-        self.draw_triangle(use_pos);
+    fn _render(&mut self) -> Result<(), wgpu::SurfaceError> {
         Ok(())
     }
 }
@@ -333,30 +293,14 @@ async fn run() {
     window.set_cursor_enter_polling(true);
     let mut state = State::new(&mut window).await;
 
-    state.clear_screen_to(colors::Colors::WHITE);
+    state.clear_screen_to(Color::WHITE);
     let mut triangle_toggle = false;
-    let mut last_color = wgpu::Color::WHITE;
+    let mut last_color = Color::WHITE;
 
     while !state.window.should_close() {
         glfw.poll_events();
 
         state.update(); // does nothing rn
-
-        // Render the screen
-        // match state.render(triangle_toggle) {
-        //     Ok(_) => {}
-        //     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-        //         state.resize(state.size)
-        //     }
-        //     Err(wgpu::SurfaceError::OutOfMemory) => {
-        //         state.window.set_should_close(true);
-        //         todo!("tracing as well")
-        //     }
-        //     Err(wgpu::SurfaceError::Timeout) => {
-        //         todo!("tracing")
-        //     }
-        //     Err(wgpu::SurfaceError::Other) => eprintln!("Well shit"),
-        // }
 
         // Capture all the events here
         for (_, event) in glfw::flush_messages(&events) {
@@ -381,7 +325,6 @@ async fn run() {
                                 label: Some("Render Encoder"),
                             });
 
-                    // Layer 1: Keep whatever color was already loaded
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -397,7 +340,6 @@ async fn run() {
                         occlusion_query_set: None,
                     });
 
-                    // Elect which Pipeline to use based on toggle
                     let render_pipeline: &wgpu::RenderPipeline = if triangle_toggle {
                         &state.render_pipelines[1]
                     } else {
@@ -406,24 +348,6 @@ async fn run() {
                     render_pass.set_pipeline(render_pipeline);
                     render_pass.draw(0..3, 0..1);
                     drop(render_pass);
-
-                    // Layer 2: Triangle Drawing
-                    // let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    //     label: Some("Render Pass"),
-                    //     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    //         view: &view,
-                    //         resolve_target: None,
-                    //         ops: wgpu::Operations {
-                    //             load: wgpu::LoadOp::Load,
-                    //             store: wgpu::StoreOp::Store,
-                    //         },
-                    //     })],
-                    //     depth_stencil_attachment: None,
-                    //     timestamp_writes: None,
-                    //     occlusion_query_set: None,
-                    // });
-
-                    // Submit and Enjoy!?!?!
                     state.queue.submit(std::iter::once(encoder.finish()));
                     output.present();
                 }
@@ -432,11 +356,7 @@ async fn run() {
                     state.window.set_should_close(true);
                 }
                 glfw::WindowEvent::CursorPos(x, y) => {
-                    // Procedural attempt to check something
                     println!("{}, {}", x, y);
-                    //state.input(&glfw::WindowEvent::CursorPos(x, y));
-                    //state.render(triangle_toggle);
-
                     let x_normalized = x / (state.size.0 as f64);
                     let y_normalized = y / (state.size.1 as f64);
 
@@ -455,7 +375,6 @@ async fn run() {
                                 label: Some("Render Encoder"),
                             });
 
-                    // Layer 1 Clear Screen to Color Determined by Cursor
                     last_color = wgpu::Color {
                         r: x_normalized,
                         g: y_normalized,
@@ -486,34 +405,6 @@ async fn run() {
                     render_pass.set_pipeline(&render_pipeline);
                     render_pass.draw(0..3, 0..1);
                     drop(render_pass);
-
-                    // Elect which Pipeline to use based on toggle
-                    // let render_pipeline: &wgpu::RenderPipeline = if triangle_toggle {
-                    //     &state.render_pipelines[1]
-                    // } else {
-                    //     &state.render_pipelines[0]
-                    // };
-
-                    // Layer 2: Triangle Drawing
-                    // let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    //     label: Some("Render Pass"),
-                    //     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    //         view: &view,
-                    //         resolve_target: None,
-                    //         ops: wgpu::Operations {
-                    //             load: wgpu::LoadOp::Load,
-                    //             store: wgpu::StoreOp::Store,
-                    //         },
-                    //     })],
-                    //     depth_stencil_attachment: None,
-                    //     timestamp_writes: None,
-                    //     occlusion_query_set: None,
-                    // });
-                    // render_pass.set_pipeline(render_pipeline);
-                    // render_pass.draw(0..3, 0..1);
-                    // drop(render_pass);
-
-                    // Submit and Enjoy!?!?!
                     state.queue.submit(std::iter::once(encoder.finish()));
                     output.present();
                 }
