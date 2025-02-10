@@ -382,7 +382,7 @@ async fn run() {
                             });
 
                     // Layer 1: Keep whatever color was already loaded
-                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
@@ -396,7 +396,6 @@ async fn run() {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
-                    drop(render_pass);
 
                     // Elect which Pipeline to use based on toggle
                     let render_pipeline: &wgpu::RenderPipeline = if triangle_toggle {
@@ -404,25 +403,25 @@ async fn run() {
                     } else {
                         &state.render_pipelines[0]
                     };
-
-                    // Layer 2: Triangle Drawing
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
                     render_pass.set_pipeline(render_pipeline);
                     render_pass.draw(0..3, 0..1);
                     drop(render_pass);
+
+                    // Layer 2: Triangle Drawing
+                    // let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    //     label: Some("Render Pass"),
+                    //     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    //         view: &view,
+                    //         resolve_target: None,
+                    //         ops: wgpu::Operations {
+                    //             load: wgpu::LoadOp::Load,
+                    //             store: wgpu::StoreOp::Store,
+                    //         },
+                    //     })],
+                    //     depth_stencil_attachment: None,
+                    //     timestamp_writes: None,
+                    //     occlusion_query_set: None,
+                    // });
 
                     // Submit and Enjoy!?!?!
                     state.queue.submit(std::iter::once(encoder.finish()));
@@ -463,7 +462,7 @@ async fn run() {
                         b: (x_normalized + y_normalized) / 2.,
                         a: 1.,
                     };
-                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
@@ -477,33 +476,42 @@ async fn run() {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
-                    drop(render_pass);
 
-                    // Elect which Pipeline to use based on toggle
                     let render_pipeline: &wgpu::RenderPipeline = if triangle_toggle {
                         &state.render_pipelines[1]
                     } else {
                         &state.render_pipelines[0]
                     };
 
-                    // Layer 2: Triangle Drawing
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    render_pass.set_pipeline(render_pipeline);
+                    render_pass.set_pipeline(&render_pipeline);
                     render_pass.draw(0..3, 0..1);
                     drop(render_pass);
+
+                    // Elect which Pipeline to use based on toggle
+                    // let render_pipeline: &wgpu::RenderPipeline = if triangle_toggle {
+                    //     &state.render_pipelines[1]
+                    // } else {
+                    //     &state.render_pipelines[0]
+                    // };
+
+                    // Layer 2: Triangle Drawing
+                    // let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    //     label: Some("Render Pass"),
+                    //     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    //         view: &view,
+                    //         resolve_target: None,
+                    //         ops: wgpu::Operations {
+                    //             load: wgpu::LoadOp::Load,
+                    //             store: wgpu::StoreOp::Store,
+                    //         },
+                    //     })],
+                    //     depth_stencil_attachment: None,
+                    //     timestamp_writes: None,
+                    //     occlusion_query_set: None,
+                    // });
+                    // render_pass.set_pipeline(render_pipeline);
+                    // render_pass.draw(0..3, 0..1);
+                    // drop(render_pass);
 
                     // Submit and Enjoy!?!?!
                     state.queue.submit(std::iter::once(encoder.finish()));
