@@ -3,8 +3,106 @@
 mod prelude; // Currently nothing in it, might become relevant as this grows -\(-.-)-\
 
 use glfw::{fail_on_errors, Action, Context, Key, MouseButton, Window};
-use wgpu::{self, Color};
+use wgpu::{
+    self,
+    util::{DeviceExt, RenderEncoder},
+    Color,
+};
 
+// Render Pipeline Bank
+struct RenderPipelineBank {
+    store: Vec<wgpu::RenderPipeline>,
+}
+
+// Pentagon
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [-0.0868241, 0.49240386, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // A
+    Vertex {
+        position: [-0.49513406, 0.06958647, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // B
+    Vertex {
+        position: [-0.21918549, -0.44939706, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // C
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // D
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // E
+];
+
+// Star
+
+const STAR_VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [-0.0868241, 0.49240386, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // A
+    Vertex {
+        position: [-0.49513406, 0.06958647, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // B
+    Vertex {
+        position: [-0.21918549, -0.44939706, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // C
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // D
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // E
+];
+
+const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+
+// Buffer Stuff
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
+// Start implementation of Builder stuff
+struct ForayRender;
+
+enum Stage {
+    Uninitialized,
+    WithView,
+}
+
+// Main Structure
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
@@ -13,6 +111,10 @@ struct State<'a> {
     size: (i32, i32),
     window: &'a mut Window,
     render_pipelines: Vec<wgpu::RenderPipeline>,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl<'a> State<'a> {
@@ -97,7 +199,7 @@ impl<'a> State<'a> {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: &[Vertex::desc()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -136,7 +238,7 @@ impl<'a> State<'a> {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: &[Vertex::desc()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -169,6 +271,18 @@ impl<'a> State<'a> {
 
         let render_pipelines = vec![render_pipeline_0, render_pipeline_1];
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         Self {
             surface,
             device,
@@ -177,6 +291,10 @@ impl<'a> State<'a> {
             size,
             window,
             render_pipelines,
+            vertex_buffer,
+            num_vertices: VERTICES.len() as u32,
+            index_buffer,
+            num_indices: INDICES.len() as u32,
         }
     }
 
@@ -346,7 +464,11 @@ async fn run() {
                         &state.render_pipelines[0]
                     };
                     render_pass.set_pipeline(render_pipeline);
-                    render_pass.draw(0..3, 0..1);
+
+                    render_pass.set_vertex_buffer(0, state.vertex_buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(state.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(0..state.num_indices, 0, 0..1);
                     drop(render_pass);
                     state.queue.submit(std::iter::once(encoder.finish()));
                     output.present();
@@ -403,11 +525,15 @@ async fn run() {
                     };
 
                     render_pass.set_pipeline(&render_pipeline);
-                    render_pass.draw(0..3, 0..1);
+                    render_pass.set_vertex_buffer(0, state.vertex_buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(state.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(0..state.num_indices, 0, 0..1);
                     drop(render_pass);
                     state.queue.submit(std::iter::once(encoder.finish()));
                     output.present();
                 }
+                glfw::WindowEvent::Key(Key::Up, _, Action::Press, _) => {}
                 event => {
                     println!("{:?}", event);
                 }
